@@ -1,0 +1,6 @@
+tools/
+roberts*
+__pycache__/
+JackBitmapEditor-main/
+.DS_Store
+nand2tetris BOOK.pdf
