@@ -75,8 +75,9 @@ class JackCompiler:
         # another common structure we see
         # doing this to keep things DRY and more simple
         self.eatToken(char1)
-        func()
+        out = func()
         self.eatToken(char2)
+        return out
 
     def isVarName(self):
         if self.Rtokens[0] in self.varNames:
@@ -441,28 +442,35 @@ class JackCompiler:
         ## strucutre ##
         # subroutineName '(' expressionList ')' | (className |
         # varName) '.' subroutineName '(' expressionList ')'
-
+        classthing = ""
         if self.Rtokens[1] == ".":
-
+            classthing = self.Rtokens[0] + "."
             self.nextToken()  # classname or varname
             self.nextToken()  # .
 
+        subthing = self.Rtokens[0]
         self.nextToken()  # subroutinename
         if (self.Rtokens[0] != "("):
             print("what the hell")
             raise
 
-        self.wrapBody("(", ")", self.expressionList)
+        paramCount = self.wrapBody("(", ")", self.expressionList)
+
+        self.vm += f"call {classthing}{subthing} {paramCount}"
 
     def expressionList(self):
         ## strucutre ##
         # (expression (',' expression)* )?
 
         if self.Rtokens[0] == ")":
-            return
+            return 0
 
         self.expression()
 
+        counter = 1
         while(self.Rtokens[0] == ","):
+            counter += 1
             self.nextToken()
             self.expression()
+
+        return counter
