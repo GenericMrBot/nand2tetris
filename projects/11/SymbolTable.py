@@ -1,0 +1,6 @@
+
+
+statics = []
+fields = []
+arguements = []
+locals = []

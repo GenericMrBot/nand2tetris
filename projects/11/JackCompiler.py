@@ -17,6 +17,7 @@ end up with getting an xml file for each file
 along the way I have to do error checking
 '''
 import time
+from SymbolTable import *
 
 
 class JackCompiler:
@@ -28,7 +29,8 @@ class JackCompiler:
         self.varNames = []
         self.subroutineNames = []
         # TODO: figure out all class types
-        self.classNames = ["Array", "Math", "Keyboard", "String"]
+        self.classNames = ["Array", "Math", "Keyboard",
+                           "String", "Sys", "Output", "Screen", "Memory"]
         self.classNames = self.classNames + classNames
         self.file = file
         self.filename = self.file.split("/")[-1].split(".")[0]
@@ -49,7 +51,7 @@ class JackCompiler:
         self.JackClass()
 
     def writeFunc(self):
-        self.vm += f"function {self.filename}.{self.Rtokens[0]} 0\n"
+        self.vm += f"function {self.filename}.{self.Rtokens[0]}"
         # TODO: change 0 when symbol table works
 
     def nextToken(self):
@@ -120,7 +122,7 @@ class JackCompiler:
         self.nextToken()  # {
 
         # classVarDec*
-        # self.classVarDec()
+        self.classVarDec()
 
         # subroutineDec*
         self.subroutineDec()
@@ -160,11 +162,11 @@ class JackCompiler:
         ## strucutre ##
         # ('constructor' | 'function' | 'method')
         # ('void' | type) subroutineName '(' parameterList ')' subroutineBody
-
-        returnme = "constant 0"
-
+        yesMethod = 0
         things = ['constructor', 'function', 'method']
         if self.Rtokens[0] in things:
+            if self.Rtokens[0] == "method":
+                yesMethod = 1
             self.nextToken()
         else:
             print(f"invalid subroutine declaration: {self.Rtokens[0]}")
@@ -172,23 +174,26 @@ class JackCompiler:
 
         if self.Rtokens[0] == "void":
             self.nextToken()   # add the void keyword
+            returnme = "push constant 0\n"
         else:
             self.type()
+            returnme = ""  # just return the top of the stack
 
         if "identifier" in self.RlexLabels[0]:
-            self.writeFunc()
+            self.writeFunc()    # subroutine name TODO
             self.nextToken()
         else:
             print(f"{self.Rtokens[0]} is not an identifier")
             raise
 
-        self.wrapBody("(", ")", self.paramList)  # '(' parameterList ')'
+        # '(' parameterList ')'
+        num_params = self.wrapBody("(", ")", self.paramList)
 
-        self.subroutineBody()
+        self.subroutineBody(yesMethod)
 
         # idk if this is right
-        self.vm += f"push {returnme}"
-        self.vm += f"return"
+        self.vm += f"{returnme}"
+        self.vm += f"return\n"
 
         if self.Rtokens[0] in ['function', 'method']:
             self.subroutineDec()
@@ -196,38 +201,53 @@ class JackCompiler:
     def paramList(self):
         ## strucutre ##
         # ((type varName) (',' type varName)*)?
+        count = 0
 
         if self.Rtokens[0] == ")":
-            return
+            return count
 
         self.type()
 
         self.varName()
 
+        count += 1
+
         while (self.Rtokens[0] == ","):
             self.nextToken()
             self.type()
             self.varName()
+            count += 1
 
-    def subroutineBody(self):
+        return count
+
+    def subroutineBody(self, isMethod):
         ## strucutre ##
         # '{' varDec* statements '}'
 
         # opening {
         self.eatToken("{")
-        self.varDecs()      # varDec*
+
+        count = isMethod    # if method then 1 else 0
+        count = self.varDecs()      # varDec*
+        print(count)
+        self.vm += f" {count}\n"
+
+        # number at the end of function declaration
+
         self.Statements()   # statements
 
         # end }
         self.eatToken("}")
 
     def varDecs(self):  # done I think
+        count = 0
 
         if self.Rtokens[0] == "var":
-            self.varDec()
-            self.varDecs()  # for recursion purposes
+            count += self.varDec()
+            count += self.varDecs()  # for recursion purposes
+            return count
         elif self.nextIsStatement():
-            return
+            return count
         else:
             print(
                 f"error neither beginning a statement or declaring a var: {self.Rtokens[0]}")
@@ -235,19 +255,24 @@ class JackCompiler:
 
     def varDec(self):   # done I think
         ## strucutre ##
+        count = 0
         # 'var' type varName (',' varName)* ';'
         if self.Rtokens[0] == ",":
             self.nextToken()  # ,
             self.varName()  # varName
-            self.varDec()   # for recursion purposes
+            count += 1
+            count += self.varDec()   # for recursion purposes
+            return count
         elif self.Rtokens[0] == "var":
             self.nextToken()  # var
             self.type()     # type
             self.varName()  # varName
-            self.varDec()
-            return
+            count += 1
+            count += self.varDec()
+            return count
         elif self.Rtokens[0] == ";":
             self.nextToken()  # ;
+            return count
         else:
             print(f"something ain't adding up here")
             time.sleep(5)
@@ -318,6 +343,8 @@ class JackCompiler:
             self.wrapBody("[", "]", self.expression)
         if self.Rtokens[0] == "=":
             self.wrapBody("=", ";", self.expression)
+            self.vm += "pop local 1\n"
+            self.vm += "push local 1\n"
         else:
             print("things ain't adding up here")
             time.sleep(3)
@@ -365,6 +392,8 @@ class JackCompiler:
         self.nextToken()      # do
 
         self.subroutineCall()
+
+        self.vm += f"pop temp 0\n"
 
         self.eatToken(";")  # ;
 
@@ -417,6 +446,14 @@ class JackCompiler:
 
         elif "integerConstant" in self.RlexLabels[0]:
             self.vm += f"push constant {self.Rtokens[0]}\n"
+            self.nextToken()
+
+        elif "stringConstant" in self.RlexLabels[0]:
+            self.vm += f"push constant {len(self.Rtokens[0])}\n"
+            self.vm += f"call String.new 1\n"
+            for letter in self.Rtokens[0]:
+                self.vm += f"push constant {ord(letter)}\n"
+                self.vm += f"call String.appendChar 2\n"
             self.nextToken()
 
         elif "Constant" in self.RlexLabels[0]:
