@@ -27,7 +27,9 @@ class JackCompiler:
         self.RlexLabels = lexLabels  # remaining labels to be added to xml
         self.varNames = []
         self.subroutineNames = []
-        self.classNames = classNames
+        # TODO: figure out all class types
+        self.classNames = ["Array", "Math", "Keyboard", "String"]
+        self.classNames = self.classNames + classNames
         self.file = file
         self.filename = self.file.split("/")[-1].split(".")[0]
         self.vm = ""
@@ -159,6 +161,8 @@ class JackCompiler:
         # ('constructor' | 'function' | 'method')
         # ('void' | type) subroutineName '(' parameterList ')' subroutineBody
 
+        returnme = "constant 0"
+
         things = ['constructor', 'function', 'method']
         if self.Rtokens[0] in things:
             self.nextToken()
@@ -181,6 +185,10 @@ class JackCompiler:
         self.wrapBody("(", ")", self.paramList)  # '(' parameterList ')'
 
         self.subroutineBody()
+
+        # idk if this is right
+        self.vm += f"push {returnme}"
+        self.vm += f"return"
 
         if self.Rtokens[0] in ['function', 'method']:
             self.subroutineDec()
@@ -368,6 +376,7 @@ class JackCompiler:
 
         if self.Rtokens[0] == ";":
             self.nextToken()
+            return
         else:
             self.expression()   # this will handle exceptions
             if self.Rtokens[0] == ";":
@@ -456,7 +465,7 @@ class JackCompiler:
 
         paramCount = self.wrapBody("(", ")", self.expressionList)
 
-        self.vm += f"call {classthing}{subthing} {paramCount}"
+        self.vm += f"call {classthing}{subthing} {paramCount}\n"
 
     def expressionList(self):
         ## strucutre ##
