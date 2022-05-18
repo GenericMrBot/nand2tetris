@@ -1,6 +1,5 @@
-
-
-statics = []
-fields = []
-arguements = []
-locals = []
+"""
+statics = [
+    [name, type, number]
+]
+"""

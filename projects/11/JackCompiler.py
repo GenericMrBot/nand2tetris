@@ -39,6 +39,10 @@ class JackCompiler:
         self.unaryOp = ['-', '~']
         self.KeywordConstant = ['true', 'false', 'null', 'this']
         self.tabLevel = 0
+        self.statics = []
+        self.fields = []
+        self.arguements = []
+        self.locals = []
 
     def writeVM(self):
         filename = self.file
@@ -99,6 +103,15 @@ class JackCompiler:
             return True
         return False
 
+    ##########################
+    ## Symbol Table Helpers ##
+    ##########################
+
+    def findLocal(self, varname):
+        for i, e in enumerate(self.locals):
+            if e[0] == varname:
+                return f"local {i}"
+
     #######################
     ## Program Structure ##
     #######################
@@ -124,6 +137,7 @@ class JackCompiler:
         # classVarDec*
         self.classVarDec()
 
+        print("1")
         # subroutineDec*
         self.subroutineDec()
 
@@ -151,9 +165,13 @@ class JackCompiler:
         # 'int' | 'char' | 'boolean' | className
         thing = ['int', "char", 'boolean', 'String']
         if self.Rtokens[0] in thing:
+            thing = self.Rtokens[0]
             self.nextToken()  # add type
+            return thing
         elif self.Rtokens[0] in self.classNames:
-            self.nextToken()   # add classname
+            thing = self.Rtokens[0]
+            self.nextToken()  # add classname
+            return thing
         else:
             print(f"not an accepted type {self.Rtokens[0]}")
             raise
@@ -202,14 +220,11 @@ class JackCompiler:
         ## strucutre ##
         # ((type varName) (',' type varName)*)?
         count = 0
-
         if self.Rtokens[0] == ")":
             return count
 
         self.type()
-
         self.varName()
-
         count += 1
 
         while (self.Rtokens[0] == ","):
@@ -257,31 +272,26 @@ class JackCompiler:
         ## strucutre ##
         count = 0
         # 'var' type varName (',' varName)* ';'
-        if self.Rtokens[0] == ",":
-            self.nextToken()  # ,
-            self.varName()  # varName
+        self.nextToken()    # var
+        typethis = self.type()         # type
+        varname = self.varName()      # varname
+        self.locals.append([varname, typethis])
+
+        count += 1
+        while(self.Rtokens[0] == ","):
+            self.nextToken()    # ,
+            varname = self.varName()      # varname
             count += 1
-            count += self.varDec()   # for recursion purposes
-            return count
-        elif self.Rtokens[0] == "var":
-            self.nextToken()  # var
-            self.type()     # type
-            self.varName()  # varName
-            count += 1
-            count += self.varDec()
-            return count
-        elif self.Rtokens[0] == ";":
-            self.nextToken()  # ;
-            return count
-        else:
-            print(f"something ain't adding up here")
-            time.sleep(5)
-            print(f"here's the error: invalid varriable declaration")
-            raise
+            self.locals.append([varname, typethis])
+
+        self.eatToken(";")
+        print(self.locals)
+        return count
 
     def varName(self):
-        self.varNames.append(self.Rtokens[0])
+        returnme = self.Rtokens[0]
         self.nextToken()
+        return returnme
 
     def subroutineName(self):
         self.subroutineNames.append(self.Rtokens[0])
@@ -337,13 +347,13 @@ class JackCompiler:
         ## strucutre ##
         # 'let' varName ('[' expression ']')? '=' expression ';'
         self.nextToken()      # let
-        self.varName()      # varName
+        varname = self.varName()      # varName
 
         if self.Rtokens[0] == "[":
             self.wrapBody("[", "]", self.expression)
         if self.Rtokens[0] == "=":
             self.wrapBody("=", ";", self.expression)
-            self.vm += "pop local 1\n"
+            self.vm += f"pop {self.findLocal(varname)}\n"
             self.vm += "push local 1\n"
         else:
             print("things ain't adding up here")
