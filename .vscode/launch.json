@@ -6,7 +6,7 @@
     "configurations": [
         {
             "args": [
-                "/Users/bryceroberts/Desktop/nand2tetris/projects/11/Seven"
+                "/Users/bryceroberts/Desktop/nand2tetris/projects/11/Square"
             ],
             "name": "Python: Current File",
             "type": "python",

@@ -9,6 +9,7 @@
  * consists of 32,768 words, each holding a 16-bit binary number.
  */ 
 class Memory {
+    static Array memory;
 
     /** Initializes the class. */
     function void init() {
@@ -16,19 +17,66 @@ class Memory {
 
     /** Returns the RAM value at the given address. */
     function int peek(int address) {
+        var Array memory;
+        let memory = 0;
+        return memory[address];
     }
 
     /** Sets the RAM value at the given address to the given value. */
     function void poke(int address, int value) {
+        var Array memory;
+        let memory = 0;
+        let memory[address] = value;
     }
 
     /** Finds an available RAM block of the given size and returns
      *  a reference to its base address. */
     function int alloc(int size) {
+        var int first, second, defrag;
+        let memory = 2048;
+        let first = 0;
+        let second = 1;
+        
+        while ~(memory[second] = 2048){
+            if (memory[first] >= size){
+                return 2048 + memory[first] - size;
+            }
+            let first = memory[second];
+            let second = first + 1;
+        }
+        do defrag();
+        let first = 0;
+        let second = 1;
+        while ~(memory[second] = 2048){
+            if (memory[first] >= size){
+                return 2048 + memory[first] - size;
+            }
+            let first = memory[second];
+            let second = first + 1;
+        }
+        return;
+    }   
+    function void defrag(){
+        var int first, second;
+        let memory = 2048;
+        let first = 0;
+        let second = 1;
+
+        while ~(memory[second] = 2048) {
+            if (memory[second] = first + memory[first]) {
+                let memory[first] = memory[first] + memory[memory[second]];
+                let memory[second] = memory[memory[second + 1]];
+            }
+            let first = memory[second];
+            let second = first + 1;
+        }
+        return;
     }
 
     /** De-allocates the given object (cast as an array) by making
      *  it available for future allocations. */
     function void deAlloc(Array o) {
+        // we are given a pointer o
+        
     }    
 }

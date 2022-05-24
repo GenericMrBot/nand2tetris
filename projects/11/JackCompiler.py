@@ -16,6 +16,7 @@ loop through files
 end up with getting an xml file for each file
 along the way I have to do error checking
 '''
+from inspect import isclass
 import time
 
 
@@ -38,10 +39,12 @@ class JackCompiler:
         self.KeywordConstant = ['true', 'false', 'null', 'this']
         self.tabLevel = 0
         self.whilecount = 0
+        self.ifcount = 0
         self.statics = []
         self.fields = []
-        self.arguements = []
+        self.arguments = []
         self.locals = []
+        self.methods = []
 
     def writeVM(self):
         filename = self.file
@@ -50,22 +53,19 @@ class JackCompiler:
             thing.write(self.vm)              # write to file
         print(f"{self.filename}.vm contains the assembly translation")
 
-    def writeFunc(self):
-        self.vm += f"function {self.filename}.{self.Rtokens[0]}"
-        # TODO: change 0 when symbol table works
-
     def nextToken(self):
-        print(self.Rtokens[0])
+        returnme = self.Rtokens[0]
         self.Rtokens = self.Rtokens[1:]
         self.RlexLabels = self.RlexLabels[1:]
+        return returnme
 
-    def eatToken(self, string):
+    def eatToken(self, list):
         # helper func
-        if self.Rtokens[0] == string:
+        if self.Rtokens[0] in list:
             self.nextToken()
             return self.Rtokens[0]
         else:
-            print(f"Expected {string} got {self.Rtokens[0]}")
+            print(f"Expected {list} got {self.Rtokens[0]}")
             raise
 
     def nextIsStatement(self):
@@ -88,48 +88,47 @@ class JackCompiler:
         self.whilecount += 1
         return self.whilecount - 1
 
+    def IfCount(self):
+        self.ifcount += 1
+        return self.ifcount - 1
+
     ##########################
     ## Symbol Table Helpers ##
     ##########################
 
-    def findLocal(self, varname):
-        for i, e in enumerate(self.locals):
-            if e[0] == varname:
-                return f"local {i}"
-
     def isVarName(self):
         inLCL = [self.Rtokens[0] == i[0] for i in self.locals]
-        inARG = [self.Rtokens[0] == i[0] for i in self.arguements]
+        inARG = [self.Rtokens[0] == i[0] for i in self.arguments]
         inSTC = [self.Rtokens[0] == i[0] for i in self.statics]
         inFLD = [self.Rtokens[0] == i[0] for i in self.fields]
         if any(inLCL):
             return
         return False
 
-    def findVar(self, varname):
+    def getVarVMName(self, varname):
         for i, e in enumerate(self.locals):
             if e[0] == varname:
                 return f"local {i}"
 
-        for i, e in enumerate(self.arguements):
+        for i, e in enumerate(self.arguments):
             if e[0] == varname:
-                return f"arguement {i}\n"
+                return f"argument {i}"
 
         for i, e in enumerate(self.fields):
             if e[0] == varname:
-                return f"this {i}\n"
+                return f"this {i}"
 
         for i, e in enumerate(self.statics):
             if e[0] == varname:
-                return f"static {i}\n"
-        print("something went wrong at findvar")
+                return f"static {i}"
+        print("something went wrong at getVarVMName")
         raise
 
     def addVar(self, scope, varname, type):
         if scope == "local":
             self.locals.append([varname, type])
-        if scope == "arguement":
-            self.arguements.append([varname, type])
+        if scope == "argument":
+            self.arguments.append([varname, type])
         if scope == "field":
             self.fields.append([varname, type])
         if scope == "static":
@@ -140,7 +139,7 @@ class JackCompiler:
             if e[0] == varname:
                 return True
 
-        for e in self.arguements:
+        for e in self.arguments:
             if e[0] == varname:
                 return True
 
@@ -151,6 +150,25 @@ class JackCompiler:
         for e in self.statics:
             if e[0] == varname:
                 return True
+
+        return False
+
+    def getclassname(self, varname):
+        for e in self.locals:
+            if e[0] == varname:
+                return e[1]
+
+        for e in self.arguments:
+            if e[0] == varname:
+                return e[1]
+
+        for e in self.fields:
+            if e[0] == varname:
+                return e[1]
+
+        for e in self.statics:
+            if e[0] == varname:
+                return e[1]
 
         return False
 
@@ -167,42 +185,39 @@ class JackCompiler:
         ## strucutre ##
         # 'class' className '{' classVarDec* subroutineDec* '}'
 
-        if self.tokens[0] == "class":
-            self.nextToken()
-        else:
-            print(f"{self.tokens[0]} is not 'class'")
-            raise
-
-        self.nextToken()  # class name
-        self.nextToken()  # {
+        self.eatToken("class")  # class key word
+        self.nextToken()        # class name
+        self.nextToken()        # {
 
         # classVarDec*
+        num_class_vars = 0
         if not(self.Rtokens[0] in ["function", "method", "constructor"]):
-            self.classVarDec()
+            num_class_vars = self.classVarDec()
 
         # subroutineDec*
-        self.subroutineDec()
+        self.subroutineDec(f"push constant {num_class_vars}\n", num_class_vars)
 
         self.nextToken()  # {
 
     def classVarDec(self):
         ## strucutre ##
         # ('static' | 'field') type varName (',' varName)* ';'
-        myscope = self.Rtokens[0]
-        self.nextToken()      # ('static' | 'field')
-
-        vartype = self.type()         # type
-        varname = self.Rtokens[0]
+        myscope = self.nextToken()      # ('static' | 'field')
+        vartype = self.type()           # type
+        varname = self.nextToken()      # varName
         self.addVar(myscope, varname, vartype)
-        self.nextToken()      # varName
+        count = 1
 
         while(self.Rtokens[0] == ","):
-            self.nextToken[0]   # ,
-            varname = self.Rtokens[0]
+            self.nextToken()   # ,
+            varname = self.nextToken()      # varName
             self.addVar(myscope, varname, vartype)
-            self.nextToken()      # varName
+            count += 1
 
         self.eatToken(";")    # ;
+        if not(self.Rtokens[0] in ["function", "method", "constructor"]):
+            count += self.classVarDec()
+        return count
 
     def type(self):  # done I think
         ## strucutre ##
@@ -220,29 +235,28 @@ class JackCompiler:
             print(f"not an accepted type {self.Rtokens[0]}")
             raise
 
-    def subroutineDec(self):
+    def subroutineDec(self, pushthing, num_class_vars, isMethod=0):
         ## strucutre ##
         # ('constructor' | 'function' | 'method')
         # ('void' | type) subroutineName '(' parameterList ')' subroutineBody
-        yesMethod = 0
-        things = ['constructor', 'function', 'method']
-        if self.Rtokens[0] in things:
-            if self.Rtokens[0] == "method":
-                yesMethod = 1
-            self.nextToken()    # func dec
-        else:
-            print(f"invalid subroutine declaration: {self.Rtokens[0]}")
-            raise
+        if self.Rtokens[0] == "method":
+            isMethod = 1
+            self.methods.append([self.Rtokens[2]])
+
+        self.eatToken(['constructor', 'function', 'method'])
 
         if self.Rtokens[0] == "void":
-            self.nextToken()   # add the void keyword
+            self.nextToken()   # void
             returnme = "push constant 0\n"
         else:
             self.type()
             returnme = ""  # just return the top of the stack
 
         if "identifier" in self.RlexLabels[0]:
-            self.writeFunc()    # subroutine name TODO
+            if self.Rtokens[0] == "new":
+                pushthing += f"call Memory.alloc 1\n"
+
+            self.vm += f"function {self.filename}.{self.Rtokens[0]}"
             self.nextToken()
         else:
             print(f"{self.Rtokens[0]} is not an identifier")
@@ -251,14 +265,17 @@ class JackCompiler:
         # '(' parameterList ')'
         num_params = self.wrapBody("(", ")", self.paramList)
 
-        self.subroutineBody(yesMethod)
+        self.subroutineBody(pushthing, num_class_vars)
 
         # idk if this is right
         self.vm += f"{returnme}"
         self.vm += f"return\n"
 
+        self.whilecount = 0
+        self.ifcount = 0
+
         if self.Rtokens[0] in ['function', 'method']:
-            self.subroutineDec()
+            self.subroutineDec(f"push argument 0\n", num_class_vars)
 
     def paramList(self):
         ## strucutre ##
@@ -267,31 +284,34 @@ class JackCompiler:
         if self.Rtokens[0] == ")":
             return count
 
-        self.type()
-        self.nextToken()
+        mytype = self.type()
+        myvar = self.nextToken()
+        self.addVar("argument", myvar, mytype)
         count += 1
 
         while (self.Rtokens[0] == ","):
-            self.nextToken()
-            self.type()
-            self.nextToken()
+            self.nextToken()    # ,
+            mytype = self.type()
+            myvar = self.nextToken()
+            self.addVar("argument", myvar, mytype)
             count += 1
 
         return count
 
-    def subroutineBody(self, isMethod):
+    def subroutineBody(self, pushthing, num_params):
         ## strucutre ##
         # '{' varDec* statements '}'
 
         # opening {
         self.eatToken("{")
 
-        count = isMethod    # if method then 1 else 0
-        count = self.varDecs()      # varDec*
+        num_func_vars = self.varDecs()      # varDec*
 
-        self.vm += f" {count}\n"
+        # number at end of func decs
+        self.vm += f" {num_func_vars}\n"
 
-        # number at the end of function declaration
+        self.vm += pushthing
+        self.vm += f"pop pointer 0\n"
 
         self.Statements()   # statements
 
@@ -318,23 +338,18 @@ class JackCompiler:
         # 'var' type varName (',' varName)* ';'
         self.nextToken()    # var
         typethis = self.type()         # type
-        varname = self.varName()      # varname
+        varname = self.nextToken()      # varname
         self.locals.append([varname, typethis])
 
         count += 1
         while(self.Rtokens[0] == ","):
             self.nextToken()    # ,
-            varname = self.varName()      # varname
-            count += 1
+            varname = self.nextToken()      # varname
             self.locals.append([varname, typethis])
+            count += 1
 
         self.eatToken(";")
         return count
-
-    def varName(self):
-        returnme = self.Rtokens[0]
-        self.nextToken()
-        return returnme
 
     def subroutineName(self):
         self.subroutineNames.append(self.Rtokens[0])
@@ -391,8 +406,8 @@ class JackCompiler:
         # 'let' varName ('[' expression ']')? '=' expression ';'
         self.nextToken()      #
         # self.vm += "start let\n"
-        saveme = self.findVar(self.Rtokens[0])
-        varname = self.varName()      # varName
+        saveme = self.getVarVMName(self.Rtokens[0])
+        varname = self.nextToken()      # varName
 
         ending = ""
 
@@ -402,7 +417,7 @@ class JackCompiler:
             self.vm += "add\n"
             ending = "pop temp 0\npop pointer 1\npush temp 0\npop that 0\n"
         else:
-            thing = self.findLocal(varname)
+            thing = self.getVarVMName(varname)
             ending += f"pop {thing}\n"
         if self.Rtokens[0] == "=":
             self.wrapBody("=", ";", self.expression)
@@ -421,13 +436,24 @@ class JackCompiler:
         ## strucutre ##
         # 'if' '(' expression ')' '{' statements '}' ('else' '{' statements '}')?
 
+        # self.vm += "ifStatement\n"
+
         self.nextToken()  # if
 
         self.wrapBody("(", ")", self.expression)
 
+        count = self.IfCount()
+
+        # self.vm += "eq\n"
+        self.vm += f"if-goto IF_TRUE{count}\n"
+        self.vm += f"goto IF_FALSE{count}\n"
+        self.vm += f"label IF_TRUE{count}\n"
+
         self.eatToken("{")
         self.Statements()
         self.eatToken("}")
+
+        self.vm += f"label IF_FALSE{count}\n"
 
         if self.Rtokens[0] == "else":
             self.nextToken()
@@ -460,6 +486,8 @@ class JackCompiler:
     def doStatement(self):
         ## strucutre ##
         # 'do' subroutineCall ';'
+
+        # self.vm += "________________\n"
 
         self.nextToken()      # do
 
@@ -498,7 +526,12 @@ class JackCompiler:
             self.term()
             if thing == "<":
                 self.vm += f"lt\n"
-                self.vm += f"not\n"
+                # self.vm += f"not\n"
+            elif thing == ">":
+                self.vm += f"gt\n"
+                # self.vm += f"not\n"
+            elif thing == "=":
+                self.vm += f"eq\n"
             elif thing == "*":
                 self.vm += f"call Math.multiply 2\n"
             elif thing == "/":
@@ -507,6 +540,8 @@ class JackCompiler:
                 self.vm += f"add\n"
             elif thing == "-":
                 self.vm += f"sub\n"
+            elif thing == "&":
+                self.vm += f"and\n"
 
     def term(self):
         ## strucutre ##
@@ -514,20 +549,17 @@ class JackCompiler:
         # varName '[' expression ']' | subroutineCall | '(' expression ')' |
         # unaryOp term
 
-        # print(self.Rtokens[0]
+        # print(self.Rtokens[0])
 
         if self.isVar(self.Rtokens[0]):
             thing = self.Rtokens[0]
             self.nextToken()
-            ending = f"push {self.findVar(thing)}\n"
+            ending = f"push {self.getVarVMName(thing)}\n"
             if self.Rtokens[0] == '[':  # is this 1 or 0?
-                print("yes")
                 self.wrapBody("[", "]", self.expression)
-                # print("out")
                 ending += f"add\n"
                 ending += f"pop pointer 1\n"
                 ending += f"push that 0\n"
-                # print("we")
 
             self.vm += ending
 
@@ -537,7 +569,15 @@ class JackCompiler:
             self.term()
 
         elif self.Rtokens[0] in self.KeywordConstant:
-            self.nextToken()
+            thing = self.nextToken()
+            if thing == "this":
+                self.vm += f"push pointer 0\n"
+            elif thing == "that":
+                self.vm += f"push pointer 1\n"
+            elif thing == "true":
+                self.vm += f"push constant 0\nnot\n"
+            elif thing == "false":
+                self.vm += f"push constant 0\n"
 
         elif "integerConstant" in self.RlexLabels[0]:
             self.vm += f"push constant {self.Rtokens[0]}\n"
@@ -568,19 +608,27 @@ class JackCompiler:
         ## strucutre ##
         # subroutineName '(' expressionList ')' | (className |
         # varName) '.' subroutineName '(' expressionList ')'
+
         classthing = ""
-        if self.Rtokens[1] == ".":
+        paramCount = 0
+        if not(self.Rtokens[1] == "."):
+            paramCount = 1
+            self.vm += "push pointer 0\n"
+            classthing = self.filename + "."
+        elif self.isVar(self.Rtokens[0]):
+            paramCount = 1
+            self.vm += f"push {self.getVarVMName(self.Rtokens[0])}\n"
+            classthing = self.getclassname(self.Rtokens[0]) + "."
+            self.nextToken()  # classname
+            self.nextToken()  # .
+        else:
             classthing = self.Rtokens[0] + "."
-            self.nextToken()  # classname or varname
+            self.nextToken()  # classname
             self.nextToken()  # .
 
-        subthing = self.Rtokens[0]
-        self.nextToken()  # subroutinename
-        if (self.Rtokens[0] != "("):
-            print("what the hell")
-            raise
+        subthing = self.nextToken()  # subroutinename
 
-        paramCount = self.wrapBody("(", ")", self.expressionList)
+        paramCount += self.wrapBody("(", ")", self.expressionList)
 
         self.vm += f"call {classthing}{subthing} {paramCount}\n"
 
