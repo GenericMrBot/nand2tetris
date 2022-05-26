@@ -16,7 +16,6 @@ loop through files
 end up with getting an xml file for each file
 along the way I have to do error checking
 '''
-from inspect import isclass
 import time
 
 
@@ -47,6 +46,8 @@ class JackCompiler:
         self.methods = []
 
     def writeVM(self):
+        # writes the current vm string contained in self.vm
+        # to a vm file of the right name
         filename = self.file
         filename = filename.removesuffix(".jack")
         with open(f"{filename}.vm", "w") as thing:
@@ -54,6 +55,7 @@ class JackCompiler:
         print(f"{self.filename}.vm contains the assembly translation")
 
     def nextToken(self):
+        print(self.Rtokens[0])
         returnme = self.Rtokens[0]
         self.Rtokens = self.Rtokens[1:]
         self.RlexLabels = self.RlexLabels[1:]
@@ -194,8 +196,12 @@ class JackCompiler:
         if not(self.Rtokens[0] in ["function", "method", "constructor"]):
             num_class_vars = self.classVarDec()
 
+        if num_class_vars == 0:
+            pushthing = ""
+        else:
+            pushthing = f"push constant {num_class_vars}\n"
         # subroutineDec*
-        self.subroutineDec(f"push constant {num_class_vars}\n", num_class_vars)
+        self.subroutineDec(pushthing, num_class_vars)
 
         self.nextToken()  # {
 
@@ -242,20 +248,18 @@ class JackCompiler:
         if self.Rtokens[0] == "method":
             isMethod = 1
             self.methods.append([self.Rtokens[2]])
+            pushthing = "push argument 0\n" + pushthing
 
         self.eatToken(['constructor', 'function', 'method'])
 
         if self.Rtokens[0] == "void":
             self.nextToken()   # void
-            returnme = "push constant 0\n"
         else:
             self.type()
-            returnme = ""  # just return the top of the stack
 
         if "identifier" in self.RlexLabels[0]:
             if self.Rtokens[0] == "new":
-                pushthing += f"call Memory.alloc 1\n"
-
+                pushthing = pushthing + f"call Memory.alloc 1\n" + "pop pointer 0\n"
             self.vm += f"function {self.filename}.{self.Rtokens[0]}"
             self.nextToken()
         else:
@@ -268,14 +272,16 @@ class JackCompiler:
         self.subroutineBody(pushthing, num_class_vars)
 
         # idk if this is right
-        self.vm += f"{returnme}"
-        self.vm += f"return\n"
+        # self.vm += f"{returnme}"
+        # self.vm += f"return\n"
 
         self.whilecount = 0
         self.ifcount = 0
 
         if self.Rtokens[0] in ['function', 'method']:
-            self.subroutineDec(f"push argument 0\n", num_class_vars)
+            self.locals = []
+            self.arguments = []
+            self.subroutineDec(f"", num_class_vars)
 
     def paramList(self):
         ## strucutre ##
@@ -311,7 +317,7 @@ class JackCompiler:
         self.vm += f" {num_func_vars}\n"
 
         self.vm += pushthing
-        self.vm += f"pop pointer 0\n"
+        # self.vm += f"pop pointer 0\n"
 
         self.Statements()   # statements
 
@@ -453,15 +459,16 @@ class JackCompiler:
         self.Statements()
         self.eatToken("}")
 
-        self.vm += f"label IF_FALSE{count}\n"
-
         if self.Rtokens[0] == "else":
-            self.nextToken()
-            self.eatToken("{")
-            self.Statements()
-            self.eatToken("}")
+            self.vm += f"goto IF_END{count}\n"
+            self.vm += f"label IF_FALSE{count}\n"
+            self.nextToken()    # else
+            self.eatToken("{")  # {
+            self.Statements()   # statements
+            self.eatToken("}")  # }
+            self.vm += f"label IF_END{count}\n"
         elif self.nextIsStatement or self.Rtokens[0] == "}":
-            return
+            self.vm += f"label IF_FALSE{count}\n"
         else:
             print("invalid if statement")
             raise
@@ -475,6 +482,7 @@ class JackCompiler:
 
         self.wrapBody("(", ")", self.expression)
 
+        self.vm += f"not\n"
         self.vm += f"if-goto WHILE_END{thing}\n"
 
         self.eatToken("{")
@@ -500,16 +508,20 @@ class JackCompiler:
     def returnStatement(self):
         ## strucutre ##
         # 'return' expression? ';'
+        returnme = ""
 
         self.nextToken()      # return
 
         if self.Rtokens[0] == ";":
             self.nextToken()
-            return
+            returnme = "push constant 0\n"
         else:
             self.expression()   # this will handle exceptions
             if self.Rtokens[0] == ";":
                 self.nextToken()  # ;
+
+        self.vm += f"{returnme}"
+        self.vm += f"return\n"
 
     ##########################
     ## Identifier Funcitons ##
@@ -542,6 +554,8 @@ class JackCompiler:
                 self.vm += f"sub\n"
             elif thing == "&":
                 self.vm += f"and\n"
+            elif thing == "|":
+                self.vm += f"or\n"
 
     def term(self):
         ## strucutre ##
@@ -549,9 +563,12 @@ class JackCompiler:
         # varName '[' expression ']' | subroutineCall | '(' expression ')' |
         # unaryOp term
 
-        # print(self.Rtokens[0])
-
-        if self.isVar(self.Rtokens[0]):
+        if self.Rtokens[1] in ["."]:
+            self.subroutineCall()
+        elif self.isVar(self.Rtokens[0]):
+            if self.Rtokens[1] == "(":
+                self.subroutineCall()
+                return
             thing = self.Rtokens[0]
             self.nextToken()
             ending = f"push {self.getVarVMName(thing)}\n"
@@ -565,8 +582,12 @@ class JackCompiler:
 
         elif self.Rtokens[0] in self.unaryOp:
             # this handles the unary op stuff
-            self.nextToken()
+            op = self.nextToken()
             self.term()
+            if op == "~":
+                self.vm += "not\n"
+            if op == "-":
+                self.vm += "neg\n"
 
         elif self.Rtokens[0] in self.KeywordConstant:
             thing = self.nextToken()
@@ -577,6 +598,8 @@ class JackCompiler:
             elif thing == "true":
                 self.vm += f"push constant 0\nnot\n"
             elif thing == "false":
+                self.vm += f"push constant 0\n"
+            elif thing == "null":
                 self.vm += f"push constant 0\n"
 
         elif "integerConstant" in self.RlexLabels[0]:
@@ -597,9 +620,6 @@ class JackCompiler:
         elif self.Rtokens[0] == "(":
             # '(' expression ')'
             self.wrapBody("(", ")", self.expression)
-
-        elif self.Rtokens[1] in [".", "("]:
-            self.subroutineCall()
         else:
             print("invalid term expression")
             raise
@@ -612,16 +632,19 @@ class JackCompiler:
         classthing = ""
         paramCount = 0
         if not(self.Rtokens[1] == "."):
+            # local method
             paramCount = 1
             self.vm += "push pointer 0\n"
             classthing = self.filename + "."
         elif self.isVar(self.Rtokens[0]):
+            # method on a class
             paramCount = 1
             self.vm += f"push {self.getVarVMName(self.Rtokens[0])}\n"
             classthing = self.getclassname(self.Rtokens[0]) + "."
             self.nextToken()  # classname
             self.nextToken()  # .
         else:
+            # calling a function
             classthing = self.Rtokens[0] + "."
             self.nextToken()  # classname
             self.nextToken()  # .
